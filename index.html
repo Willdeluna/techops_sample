@@ -265,7 +265,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
       <p class="hint">Use the anon key, never the service_role key. The anon key sits inside this page, so anyone with the page and key can edit the library.</p>
       <div class="msg" id="c_msg"></div>
     </div>
-    <div class="dfoot"><button id="c_sql">Copy setup SQL</button><button id="c_off">Disconnect</button><span class="sp"></span><button data-close="cloudDlg">Cancel</button><button class="save" id="c_on">Connect</button></div>
+    <div class="dfoot"><button id="c_sql">Copy setup SQL</button><button id="c_copy">Save copy for other devices</button><button id="c_off">Disconnect</button><span class="sp"></span><button data-close="cloudDlg">Cancel</button><button class="save" id="c_on">Connect</button></div>
   </div>
 </div>
 
@@ -280,6 +280,17 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+/* ===== Built-in connection =====================================================
+   Paste your Supabase anon key between the quotes on the "key" line below and save
+   the file. Every device that opens this file then connects on its own, which is
+   what makes it work on iPad. Use the anon key only, never the service_role key.
+================================================================================== */
+const BUILT_IN={
+  url:/*URL*/'https://vtibzkzkyatwbydbagau.supabase.co',
+  key:/*KEY*/'',
+  bucket:/*BUCKET*/'pin-photos'
+};
+const PRISTINE='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
 (function(){
 /* ================= constants ================= */
 const CFG_KEY='b717_pins_cloud_cfg', AREA_KEY='b717_pins_area';
@@ -385,7 +396,9 @@ let S=null;              // {areas, pins, pending}
 let curArea=null, hist=[];
 let activeId=null, draft=null, saved=null, dirty=false, isNew=false;
 let placing=null, zoom=1, RATIO=4/3;
-let cfg=null; try{cfg=JSON.parse(localStorage.getItem(CFG_KEY))}catch(e){}
+let cfg=null,cfgOff=false;
+try{const raw=localStorage.getItem(CFG_KEY);if(raw==='off')cfgOff=true;else cfg=JSON.parse(raw)}catch(e){}
+if(!cfg&&!cfgOff&&BUILT_IN.key)cfg={url:BUILT_IN.url,key:BUILT_IN.key,bucket:BUILT_IN.bucket||'pin-photos'};
 const cloudOn=()=>!!(cfg&&cfg.url&&cfg.key&&cfg.bucket);
 
 function seedState(){
@@ -796,7 +809,7 @@ document.addEventListener('keydown',e=>{
 /* ================= cloud dialog ================= */
 function cMsg(m,ok){$('#c_msg').textContent=m;$('#c_msg').className='msg '+(ok?'ok':'err')}
 function openCloud(){
-  $('#c_url').value=cfg?.url||DEFAULT_URL;$('#c_key').value=cfg?.key||'';$('#c_bucket').value=cfg?.bucket||DEFAULT_BUCKET;
+  $('#c_url').value=cfg?.url||BUILT_IN.url||DEFAULT_URL;$('#c_key').value=cfg?.key||BUILT_IN.key||'';$('#c_copy').style.display=cloudOn()?'':'none';$('#c_bucket').value=cfg?.bucket||DEFAULT_BUCKET;
   $('#c_off').style.display=cloudOn()?'':'none';
   if(cloudOn())cMsg(lastErr?'Connected, but the last sync failed: '+lastErr:`Connected. ${pendingCount()||'No'} change${pendingCount()===1?'':'s'} waiting to upload.`,!lastErr);
   else $('#c_msg').className='msg';
@@ -825,16 +838,25 @@ $('#c_on').onclick=async()=>{
       if(!S.areas.some(a=>a.id===curArea))curArea=S.areas[0]?.id||null;
       cMsg(`Connected. Loaded ${cloud.areas.length} area${cloud.areas.length===1?'':'s'} and ${cloud.pins.length} pin${cloud.pins.length===1?'':'s'} from the cloud.`,true);
     }
-    await persist();renderArea();setStatus();$('#c_off').style.display='';
+    await persist();renderArea();setStatus();$('#c_off').style.display='';$('#c_copy').style.display='';
   }catch(e){
     const m=String(e.message);
     cMsg(/404|relation|does not exist|schema cache/i.test(m)?'Connected to Supabase, but the tables are missing. Copy the setup SQL, run it in the SQL editor, then connect again.':/401|JWT|Invalid API key/i.test(m)?'Supabase rejected the key. Copy the anon public key again.':m);
   }
   $('#c_on').disabled=false;
 };
+$('#c_copy').onclick=async()=>{
+  if(!cloudOn())return;
+  const put=(src,tag,val)=>{const m='/*'+tag+'*/';const i=src.indexOf(m);if(i<0)return src;const j=src.indexOf("'",i+m.length+1);return src.slice(0,i+m.length)+JSON.stringify(val)+src.slice(j+1)};
+  let html=put(put(put(PRISTINE,'URL',cfg.url),'KEY',cfg.key),'BUCKET',cfg.bucket);
+  const filename='b717_pin_library.html';
+  if(dl){try{await dl.save({filename,data:html});cMsg('Saved. Open that copy on your iPad or other devices and it connects by itself.',true)}catch(e){if(e&&e.code!=='declined')cMsg('Saving is not available here.')}return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));a.download=filename;document.body.appendChild(a);a.click();a.remove();
+  cMsg('Downloaded a copy with the key built in. Put it on your iPad (AirDrop, OneDrive or GitHub Pages) and it connects by itself.',true);
+};
 $('#c_off').onclick=async()=>{
   if(!confirm('Disconnect cloud storage on this device? Your library stays online. Photos already uploaded won\'t show here until you reconnect.'))return;
-  cfg=null;try{localStorage.removeItem(CFG_KEY)}catch(e){}lastErr='';setStatus();renderArea();closeModal('cloudDlg');toast('Disconnected. Changes now save on this device only.');
+  cfg=null;try{localStorage.setItem(CFG_KEY,BUILT_IN.key?'off':'');if(!BUILT_IN.key)localStorage.removeItem(CFG_KEY)}catch(e){}lastErr='';setStatus();renderArea();closeModal('cloudDlg');toast('Disconnected. Changes now save on this device only.');
 };
 
 /* ================= export / import ================= */
